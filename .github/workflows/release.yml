@@ -1,0 +1,37 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm run typecheck
+      - name: Build
+        run: RDTERM_VERSION="${GITHUB_REF_NAME#v}" npm run build
+        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Build (untagged)
+        run: RDTERM_VERSION="main-${GITHUB_SHA::7}" npm run build
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+      - run: node dist/rdterm.mjs --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rdterm
+          path: dist/rdterm.mjs
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/rdterm.mjs --title "$GITHUB_REF_NAME" --generate-notes

@@ -1,0 +1,25 @@
+{
+  "name": "rdterm",
+  "version": "0.1.0",
+  "description": "A RustDesk terminal in your own terminal, through CortenDesk. AGPL-3.0.",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "bin": { "rdterm": "dist/rdterm.mjs" },
+  "files": ["dist/rdterm.mjs", "LICENSE", "README.md"],
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit",
+    "prepare": "node build.mjs"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@bufbuild/protobuf": "^2.13.0",
+    "@types/libsodium-wrappers": "^0.7.14",
+    "@types/node": "^22.20.5",
+    "esbuild": "^0.28.2",
+    "libsodium-wrappers": "^0.7.15",
+    "typescript": "^5.7.0",
+    "zstddec": "^0.1.0"
+  }
+}
