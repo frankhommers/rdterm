@@ -8,12 +8,15 @@
 import { createInterface } from 'node:readline';
 import {
   currentUser,
+  forgetToken,
   identity,
   loginOptions,
   logout,
   myName,
   passwordLogin,
   peers,
+  plainServerUrls,
+  usesConsole,
   resolvePeer,
   server,
   serverKey,
@@ -30,8 +33,12 @@ const VERSION = typeof RDTERM_VERSION === 'string' ? RDTERM_VERSION : 'dev';
 const USAGE = `rdterm ${VERSION}: a RustDesk terminal through CortenDesk
 
   rdterm login [URL]        sign in to CortenDesk (single sign-on or password)
-  rdterm ls                 list the devices you can see
-  rdterm <device> [opts]    open a shell; <device> is a name, hostname or RustDesk ID
+  rdterm server HOST --key KEY [--id-port 21118] [--relay-port 21119]
+                            use a plain RustDesk server instead (no CortenDesk);
+                            HOST may be a wss:// URL behind a TLS proxy
+  rdterm ls                 list the devices you can see (CortenDesk only)
+  rdterm <device> [opts]    open a shell; <device> is a RustDesk ID, or with
+                            CortenDesk also a name or hostname
       --new                 start a fresh shell instead of reattaching
       --no-keep             don't keep the shell running after you disconnect
       --password            ask for the device password again
@@ -83,8 +90,10 @@ async function cmdLogin(url?: string): Promise<void> {
       c.server = url.replace(/\/+$/, '');
       delete c.serverKey;
       delete c.services;
-      saveConfig(c);
     }
+    delete c.wsIdUrl;
+    delete c.wsRelayUrl;
+    saveConfig(c);
   }
   if (!c.server) c.server = (await ask('CortenDesk URL: ')).trim().replace(/\/+$/, '');
   if (!/^https?:\/\//i.test(c.server)) c.server = `https://${c.server}`;
@@ -114,7 +123,28 @@ async function cmdLogin(url?: string): Promise<void> {
   err('If CortenDesk only lets approved devices start sessions, approve that ID once in the console.');
 }
 
+async function cmdServer(host: string | undefined, opts: Map<string, string>): Promise<void> {
+  const key = opts.get('--key') ?? '';
+  if (!host || !key) throw new Error('Usage: rdterm server HOST --key KEY [--id-port 21118] [--relay-port 21119]');
+  if (!/^[A-Za-z0-9+/]{43}=$/.test(key)) throw new Error('That does not look like a RustDesk server key (the contents of id_ed25519.pub).');
+  const idPort = Number(opts.get('--id-port') ?? 21118);
+  const relayPort = Number(opts.get('--relay-port') ?? 21119);
+  const urls = plainServerUrls(host, idPort, relayPort);
+  const c = loadConfig();
+  if (c.server) await logout().catch(() => forgetToken());
+  delete c.server;
+  c.serverKey = key;
+  c.wsIdUrl = urls.id;
+  c.wsRelayUrl = urls.relay;
+  delete c.services;
+  saveConfig(c);
+  identity();
+  err(`Using the RustDesk server at ${urls.id} and ${urls.relay}.`);
+  err('Connect by RustDesk ID: rdterm 123456789');
+}
+
 async function cmdLs(): Promise<void> {
+  if (!usesConsole()) throw new Error('Listing devices needs CortenDesk (rdterm login). With a plain RustDesk server, connect by RustDesk ID.');
   const list = await peers();
   if (!list.length) {
     err('No devices visible to this account.');
@@ -128,9 +158,9 @@ async function cmdLs(): Promise<void> {
 
 async function cmdWhoami(): Promise<void> {
   const c = loadConfig();
-  err(`Server:   ${c.server ?? '(none)'}`);
+  err(usesConsole(c) ? `Server:   CortenDesk at ${c.server}` : c.wsIdUrl ? `Server:   RustDesk server, ${c.wsIdUrl} and ${c.wsRelayUrl}` : 'Server:   (none)');
   err(`Client:   RustDesk ID ${c.id ?? '(not made yet)'}, shown as "${myName()}"`);
-  err(`Signed in: ${token() ? (await currentUser().catch(() => null)) ?? 'token rejected, run rdterm login' : 'no'}`);
+  if (usesConsole(c)) err(`Signed in: ${token() ? (await currentUser().catch(() => null)) ?? 'token rejected, run rdterm login' : 'no'}`);
   err(`Secrets:  ${where.keychain ? 'macOS keychain (service "rdterm")' : `${where.dir}/secrets.json`}`);
 }
 
@@ -223,8 +253,22 @@ async function cmdConnect(query: string, flags: Set<string>): Promise<number> {
 }
 
 async function main(argv: string[]): Promise<number> {
-  const args = argv.filter((a) => !a.startsWith('--'));
-  const flags = new Set(argv.filter((a) => a.startsWith('--')));
+  // Options that take a value: --key K or --key=K.
+  const VALUE = new Set(['--key', '--id-port', '--relay-port']);
+  const args: string[] = [];
+  const flags = new Set<string>();
+  const opts = new Map<string, string>();
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]!;
+    if (!a.startsWith('--')) {
+      args.push(a);
+      continue;
+    }
+    const eq = a.indexOf('=');
+    const name = eq > 0 ? a.slice(0, eq) : a;
+    if (VALUE.has(name)) opts.set(name, eq > 0 ? a.slice(eq + 1) : argv[++i] ?? '');
+    else flags.add(a);
+  }
   if (flags.has('--version')) {
     process.stdout.write(`rdterm ${VERSION}\n`);
     return 0;
@@ -241,6 +285,9 @@ async function main(argv: string[]): Promise<number> {
     case 'logout':
       await logout();
       err('Signed out.');
+      return 0;
+    case 'server':
+      await cmdServer(arg, opts);
       return 0;
     case 'ls':
       await cmdLs();

@@ -32,9 +32,42 @@ export function server(c: Config = loadConfig()): string {
   return s;
 }
 
-export function wsUrls(): { id: string; relay: string } {
-  const base = server().replace(/^http/i, 'ws');
+/** Signed in to a CortenDesk console (rather than a plain RustDesk server). */
+export function usesConsole(c: Config = loadConfig()): boolean {
+  return !!(process.env.RDTERM_SERVER || c.server);
+}
+
+/**
+ * The ID server and relay WebSocket endpoints: the console's /ws/id and
+ * /ws/relay, or those of a plain RustDesk server set with `rdterm server`.
+ */
+export function wsUrls(c: Config = loadConfig()): { id: string; relay: string } {
+  if (process.env.RDTERM_WS_ID && process.env.RDTERM_WS_RELAY) return { id: process.env.RDTERM_WS_ID, relay: process.env.RDTERM_WS_RELAY };
+  if (!usesConsole(c) && c.wsIdUrl && c.wsRelayUrl) return { id: c.wsIdUrl, relay: c.wsRelayUrl };
+  const base = server(c).replace(/^http/i, 'ws');
   return { id: `${base}/ws/id`, relay: `${base}/ws/relay` };
+}
+
+/**
+ * The WebSocket endpoints of a plain RustDesk server. `host` is a host name
+ * (ports 21118 and 21119, plain ws) or a URL whose scheme and host are used
+ * for both, e.g. wss://rustdesk.example.com behind a TLS proxy.
+ */
+export function plainServerUrls(host: string, idPort = 21118, relayPort = 21119): { id: string; relay: string } {
+  const h = host.trim().replace(/\/+$/, '');
+  const m = /^(wss?|https?):\/\/(.+)$/i.exec(h);
+  if (m) {
+    const scheme = m[1]!.toLowerCase().replace(/^http/, 'ws');
+    const rest = m[2]!;
+    // A URL with a path is taken as-is for the ID server, with the relay at /ws/relay beside it.
+    if (rest.includes('/')) {
+      const origin = rest.slice(0, rest.indexOf('/'));
+      return { id: `${scheme}://${rest}`, relay: `${scheme}://${origin}/ws/relay` };
+    }
+    if (/:\d+$/.test(rest)) throw new Error('Give a host name, or a URL with a path; use --id-port and --relay-port for ports.');
+    return { id: `${scheme}://${rest}:${idPort}`, relay: `${scheme}://${rest}:${relayPort}` };
+  }
+  return { id: `ws://${h}:${idPort}`, relay: `ws://${h}:${relayPort}` };
 }
 
 export function token(): string {
@@ -175,6 +208,7 @@ export async function serverKey(): Promise<string> {
   const c = loadConfig();
   if (process.env.RDTERM_SERVER_KEY) return process.env.RDTERM_SERVER_KEY;
   if (c.serverKey) return c.serverKey;
+  if (!usesConsole(c)) throw new Error('No server key set. Run: rdterm server <host> --key <key from the server\'s id_ed25519.pub>');
   needToken();
   const r = await call('POST', '/api/server-config', {});
   const key = r.json?.data?.key;
@@ -192,6 +226,7 @@ export async function resolvePeer(query: string): Promise<{ id: string; name: st
     const p = (await peers()).find((x) => x.id === id);
     return { id, name: p?.name ?? id };
   }
+  if (!usesConsole()) throw new Error(`With a plain RustDesk server, connect by RustDesk ID (not "${query}").`);
   const list = await peers();
   const q = query.toLowerCase();
   const exact = list.filter((p) => p.name.toLowerCase() === q || p.hostname.toLowerCase() === q);

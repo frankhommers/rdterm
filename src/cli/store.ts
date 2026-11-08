@@ -18,8 +18,11 @@ export type Config = {
   /** This client's own RustDesk identity, made on first use. */
   id?: string;
   uuid?: string;
-  /** Server public key, cached from /api/server-config. */
+  /** Server public key: from /api/server-config, or set with `rdterm server`. */
   serverKey?: string;
+  /** A plain RustDesk server (no CortenDesk): its WebSocket endpoints. */
+  wsIdUrl?: string;
+  wsRelayUrl?: string;
   /** Persistent terminal service id per device, to reattach. */
   services?: Record<string, string>;
 };
