@@ -10,8 +10,9 @@ PS C:\Users\frank>
 ```
 
 It opens RustDesk's built-in terminal on a device, the same one CortenDesk's
-web terminal uses, over the normal RustDesk route: your ID server and relay. No SSH server on the device, no open ports, no VPN. It only needs
-RustDesk 1.4.1 or newer on the device, with the terminal allowed.
+web terminal uses, over the normal RustDesk route: your ID server and relay.
+No SSH server on the device, no open ports, no VPN. It only needs RustDesk
+1.4.1 or newer on the device, with the terminal allowed.
 
 rdterm is a small RustDesk client that does only the terminal. It is not part
 of CortenDesk or RustDesk.
@@ -37,15 +38,9 @@ rdterm ls                                   # devices you can see
 rdterm windows-box                          # name, hostname or RustDesk ID
 ```
 
-- The first time, rdterm asks for the device's permanent RustDesk password and
-  keeps it in the macOS keychain (service `rdterm`). Leave it empty to have
-  someone accept on the device instead.
-- **Enter `~` `.`** disconnects, as in ssh. The shell keeps running on the
-  device; run `rdterm windows-box` again to come back to it. `--new` starts a
-  fresh shell, `--no-keep` ends it when you disconnect.
-- If the connection drops, run the same command again to reattach.
-- `rdterm forget <device>` removes the stored password, `rdterm logout` signs
-  out, `rdterm whoami` shows where you're signed in.
+rdterm signs in to CortenDesk like the RustDesk app does and appears there as
+its own device (`you@your-mac (rdterm)`). If CortenDesk only lets approved
+devices start sessions, approve it once.
 
 ### With a plain RustDesk server (hbbs/hbbr)
 
@@ -63,14 +58,20 @@ with `rdterm login`.
 
 ### Everyday use
 
-rdterm signs in to CortenDesk like the RustDesk app does and appears there as
-its own device (`you@your-mac (rdterm)`). If CortenDesk only lets approved
-devices start sessions, approve it once.
+- The first time, rdterm asks for the device's permanent RustDesk password and
+  keeps it in the macOS keychain (service `rdterm`). Leave it empty to have
+  someone accept on the device instead.
+- **Enter `~` `.`** disconnects, as in ssh. The shell keeps running on the
+  device; run the same command again to come back to it. `--new` starts a
+  fresh shell, `--no-keep` ends it when you disconnect.
+- If the connection drops, run the same command again to reattach.
+- `rdterm forget <device>` removes the stored password, `rdterm logout` signs
+  out, `rdterm whoami` shows the server and sign-in.
 
 ## Where things are kept
 
-- `~/.config/rdterm/config.json`: server, this client's RustDesk ID, the
-  server key, and the ids of shells to reattach to.
+- `~/.config/rdterm/config.json`: server or RustDesk server addresses, this
+  client's RustDesk ID, the server key, and the ids of shells to reattach to.
 - Secrets (CortenDesk sign-in, device passwords): the macOS keychain. On
   other systems, `~/.config/rdterm/secrets.json`, readable only by you.
 
