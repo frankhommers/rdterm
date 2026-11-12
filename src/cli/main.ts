@@ -42,6 +42,8 @@ const USAGE = `rdterm ${VERSION}: a RustDesk terminal through CortenDesk
       --new                 start a fresh shell instead of reattaching
       --no-keep             don't keep the shell running after you disconnect
       --password            ask for the device password again
+      --admin               Windows only: run the shell as administrator; asks
+                            for a Windows administrator's user name and password
   rdterm forget <device>    remove the stored device password
   rdterm whoami             show server and sign-in
   rdterm logout             sign out
@@ -168,7 +170,11 @@ async function cmdForget(query: string): Promise<void> {
   const p = await resolvePeer(query);
   setSecret(`device:${p.id}`, null);
   const c = loadConfig();
-  if (c.services) delete c.services[p.id];
+  if (c.services) {
+    delete c.services[p.id];
+    delete c.services[`${p.id}:admin`];
+  }
+  if (c.adminUsers) delete c.adminUsers[p.id];
   saveConfig(c);
   err(`Forgot the password for ${p.name} (${p.id}).`);
 }
@@ -179,17 +185,41 @@ async function cmdConnect(query: string, flags: Set<string>): Promise<number> {
   const key = await serverKey();
   const ws = wsUrls();
   const persistent = !flags.has('--no-keep');
+  const asAdmin = flags.has('--admin');
+  // The admin shell is a separate session on the device: remember it apart.
+  const svcKey = asAdmin ? `${peer.id}:admin` : peer.id;
   const c = loadConfig();
-  let serviceId = flags.has('--new') || !persistent ? '' : c.services?.[peer.id] ?? '';
+  let serviceId = flags.has('--new') || !persistent ? '' : c.services?.[svcKey] ?? '';
   let password = flags.has('--password') ? null : getSecret(`device:${peer.id}`);
   let asked = false;
+  // The Windows password is asked every time and never stored.
+  let admin: { username: string; password: string } | undefined;
+  const askAdmin = async (): Promise<void> => {
+    const last = loadConfig().adminUsers?.[peer.id] ?? '';
+    const typed = (await ask(`Windows administrator on ${peer.name}${last ? ` [${last}]` : ''}: `)).trim();
+    const username = typed || last;
+    if (!username) throw new Error('--admin needs a Windows user name.');
+    admin = { username, password: await ask(`Windows password for ${username}: `, true) };
+  };
+  const rememberAdmin = (): void => {
+    if (!admin) return;
+    const cc = loadConfig();
+    cc.adminUsers = { ...(cc.adminUsers ?? {}), [peer.id]: admin.username };
+    saveConfig(cc);
+  };
+  const dropService = (): void => {
+    const cc = loadConfig();
+    if (cc.services) delete cc.services[svcKey];
+    saveConfig(cc);
+  };
 
   for (let attempt = 0; attempt < 3; attempt++) {
     if (password === null) {
       password = await ask(`RustDesk password for ${peer.name} (empty: ask someone to accept on the device): `, true);
       asked = true;
     }
-    status(`Connecting to ${peer.name}…`);
+    if (asAdmin && !admin) await askAdmin();
+    status(`Connecting to ${peer.name}${asAdmin ? ' as administrator' : ''}…`);
     const r = await runTerminal(
       {
         peerId: peer.id,
@@ -202,26 +232,27 @@ async function cmdConnect(query: string, flags: Set<string>): Promise<number> {
         signalToken: token(),
         serviceId,
         persistent,
+        ...(admin ? { admin } : {}),
       },
       {
         status,
         askTwoFactor: (wrong) => ask(wrong ? 'Wrong code. RustDesk 2FA code: ' : 'RustDesk 2FA code: '),
         serviceId: (id) => {
           const cc = loadConfig();
-          cc.services = { ...(cc.services ?? {}), [peer.id]: id };
+          cc.services = { ...(cc.services ?? {}), [svcKey]: id };
           saveConfig(cc);
           // Logged in: keep a password that was just typed.
           if (asked && password) setSecret(`device:${peer.id}`, password);
+          rememberAdmin();
         },
       },
     );
     status('');
     switch (r.kind) {
       case 'exited': {
-        const cc = loadConfig();
-        if (cc.services) delete cc.services[peer.id];
-        saveConfig(cc);
+        dropService();
         if (asked && password) setSecret(`device:${peer.id}`, password);
+        rememberAdmin();
         err(`\r\nrdterm: shell on ${peer.name} exited${r.code ? ` with code ${r.code}` : ''}.`);
         return r.code & 0xff;
       }
@@ -233,12 +264,14 @@ async function cmdConnect(query: string, flags: Set<string>): Promise<number> {
         setSecret(`device:${peer.id}`, null);
         password = null;
         continue;
+      case 'wrongWindowsLogin':
+        err(`rdterm: ${r.message}`);
+        admin = undefined;
+        continue;
       case 'failed':
         if (serviceId && !/password/i.test(r.message)) {
           // A stale persistent session can fail to reattach: try once fresh.
-          const cc = loadConfig();
-          if (cc.services) delete cc.services[peer.id];
-          saveConfig(cc);
+          dropService();
           if (attempt === 0 && !/lost/i.test(r.message)) {
             serviceId = '';
             continue;

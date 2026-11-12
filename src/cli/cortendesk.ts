@@ -81,16 +81,25 @@ function deviceInfo(): Record<string, string> {
 type Reply = { status: number; json: any };
 
 async function call(method: 'GET' | 'POST', path: string, body?: unknown, bearer = token()): Promise<Reply> {
-  const res = await fetch(`${server()}${path}`, {
-    method,
-    headers: {
-      Accept: 'application/json',
-      ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-      ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
-    },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-    signal: AbortSignal.timeout(15_000),
-  });
+  const url = `${server()}${path}`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method,
+      headers: {
+        Accept: 'application/json',
+        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}),
+      },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (e) {
+    // fetch only says "fetch failed"; the real reason is in e.cause.
+    const c = (e as { cause?: { code?: string; message?: string } }).cause;
+    const why = c?.code || c?.message || (e as Error).message;
+    throw new Error(`Cannot reach ${new URL(url).host}: ${why}`);
+  }
   let json: any = null;
   try {
     json = await res.json();

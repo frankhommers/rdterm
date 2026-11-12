@@ -81,7 +81,8 @@ export function buildLoginRequest(opts: {
   // no video options (there is no video stream on this connection type).
   fileTransfer?: { dir: string; showHidden: boolean };
   viewCamera?: boolean;
-  terminal?: { serviceId: string; persistent: boolean };
+  /** osLogin: a Windows administrator's account; the device then runs the terminal elevated. */
+  terminal?: { serviceId: string; persistent: boolean; osLogin?: { username: string; password: string } };
   /** Desktop and camera connections only; ignored for file transfer and terminal. */
   initialOptions?: InitialSessionOptions;
 }): Uint8Array {
@@ -112,6 +113,7 @@ export function buildLoginRequest(opts: {
                   $case: 'terminal',
                   terminal: { service_id: opts.terminal.serviceId },
                 },
+                ...(opts.terminal.osLogin ? { os_login: opts.terminal.osLogin } : {}),
                 option: OptionMessage.fromPartial({
                   terminal_persistent: opts.terminal.persistent
                     ? OptionMessage_BoolOption.Yes

@@ -1,6 +1,6 @@
 {
   "name": "rdterm",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "A RustDesk terminal in your own terminal, through CortenDesk. AGPL-3.0.",
   "license": "AGPL-3.0-only",
   "type": "module",

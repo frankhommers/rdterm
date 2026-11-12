@@ -23,8 +23,10 @@ export type Config = {
   /** A plain RustDesk server (no CortenDesk): its WebSocket endpoints. */
   wsIdUrl?: string;
   wsRelayUrl?: string;
-  /** Persistent terminal service id per device, to reattach. */
+  /** Persistent terminal service id per device ("<id>:admin" for --admin), to reattach. */
   services?: Record<string, string>;
+  /** Last Windows administrator user name per device, for --admin (never the password). */
+  adminUsers?: Record<string, string>;
 };
 
 export function loadConfig(): Config {

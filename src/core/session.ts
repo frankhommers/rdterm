@@ -1328,6 +1328,7 @@ export class Session {
         ? {
             serviceId: this.config.terminalServiceId ?? '',
             persistent: this.config.terminalPersistent ?? false,
+            osLogin: this.config.terminalOsLogin,
           }
         : undefined,
       initialOptions: this.config.initialOptions,

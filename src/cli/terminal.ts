@@ -21,6 +21,8 @@ export type TerminalTarget = {
   /** Reattach to this persistent session; '' starts a new one. */
   serviceId: string;
   persistent: boolean;
+  /** "Terminal as administrator" (Windows): an administrator's Windows account. */
+  admin?: { username: string; password: string };
 };
 
 export type TerminalHooks = {
@@ -34,6 +36,7 @@ export type TerminalResult =
   | { kind: 'exited'; code: number }
   | { kind: 'detached' }
   | { kind: 'wrongPassword'; message: string }
+  | { kind: 'wrongWindowsLogin'; message: string }
   | { kind: 'failed'; message: string };
 
 const OPEN_TIMEOUT_MS = 20_000;
@@ -41,6 +44,11 @@ const CONNECT_TIMEOUT_MS = 45_000;
 
 function size(): { rows: number; cols: number } {
   return { rows: process.stdout.rows || 24, cols: process.stdout.columns || 80 };
+}
+
+/** What a Windows device answers when the administrator login fails. */
+function isWrongWindowsLogin(message: string): boolean {
+  return /incorrect username or password/i.test(message);
 }
 
 function isWrongPassword(message: string): boolean {
@@ -127,6 +135,9 @@ export async function runTerminal(t: TerminalTarget, hooks: TerminalHooks): Prom
     }
 
     const onEvent = (ev: SessionEvent): void => {
+      // After finish() nothing may happen any more (e.g. no terminal opened
+      // once --admin was refused on a non-Windows device).
+      if (done) return;
       switch (ev.t) {
         case 'state':
           if (ev.state === 'streaming') {
@@ -146,6 +157,8 @@ export async function runTerminal(t: TerminalTarget, hooks: TerminalHooks): Prom
             clearTimeout(connectTimer);
             connectTimer = undefined;
             hooks.status('Waiting for someone to accept on the device…');
+          } else if (ev.state === 'error' && t.admin && isWrongWindowsLogin(ev.detail ?? '')) {
+            finish({ kind: 'wrongWindowsLogin', message: 'Wrong Windows user name or password, or that user is not an administrator.' });
           } else if (ev.state === 'error') {
             finish(isWrongPassword(ev.detail ?? '') ? { kind: 'wrongPassword', message: ev.detail ?? '' } : { kind: 'failed', message: ev.detail || 'The connection failed.' });
           } else if (ev.state === 'closed') {
@@ -156,8 +169,17 @@ export async function runTerminal(t: TerminalTarget, hooks: TerminalHooks): Prom
           return;
         case 'peerInfo':
           peerSupportsTerminal = ev.terminalSupported;
+          // Only Windows runs a terminal as administrator; elsewhere the login
+          // would be ignored and you would get an ordinary shell.
+          if (t.admin && !/windows/i.test(ev.platform)) {
+            finish({ kind: 'failed', message: `--admin only works with Windows devices (this one is ${ev.platform || 'not Windows'}).` });
+          }
           return;
         case 'loginError':
+          if (t.admin && isWrongWindowsLogin(ev.message)) {
+            finish({ kind: 'wrongWindowsLogin', message: 'Wrong Windows user name or password, or that user is not an administrator.' });
+            return;
+          }
           finish(isWrongPassword(ev.message) ? { kind: 'wrongPassword', message: ev.message } : { kind: 'failed', message: ev.message });
           return;
         case 'twoFactor':
@@ -225,7 +247,7 @@ export async function runTerminal(t: TerminalTarget, hooks: TerminalHooks): Prom
       try {
         ws1 = await WsStream.open(t.wsIdUrl, Ws);
       } catch (e) {
-        finish({ kind: 'failed', message: `Could not reach the CortenDesk server: ${(e as Error).message}` });
+        finish({ kind: 'failed', message: `Could not reach the ID server: ${(e as Error).message}` });
         return;
       }
       if (done) {
@@ -245,6 +267,7 @@ export async function runTerminal(t: TerminalTarget, hooks: TerminalHooks): Prom
           connType: 'terminal',
           terminalServiceId: t.serviceId,
           terminalPersistent: t.persistent,
+          ...(t.admin ? { terminalOsLogin: t.admin } : {}),
           videoAck: false,
         },
         {

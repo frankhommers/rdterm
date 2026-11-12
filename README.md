@@ -65,6 +65,13 @@ with `rdterm login`.
   device; run the same command again to come back to it. `--new` starts a
   fresh shell, `--no-keep` ends it when you disconnect.
 - If the connection drops, run the same command again to reattach.
+- **Windows: `--admin`** runs the shell as administrator, like *Terminal (Run
+  as administrator)* in the RustDesk app. rdterm asks for a Windows
+  administrator's user name and password (a local or domain account, not a
+  Microsoft account); the device then runs the shell elevated. The password is
+  asked every time and never stored; the user name is remembered. The admin
+  shell is kept apart from the normal one, so you can reattach to either. It
+  needs a RustDesk version on the device that offers this.
 - `rdterm forget <device>` removes the stored password, `rdterm logout` signs
   out, `rdterm whoami` shows the server and sign-in.
 
